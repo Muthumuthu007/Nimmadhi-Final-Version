@@ -1,473 +1,456 @@
-import React, { useState } from 'react';
-import { InventoryTable } from '../components/InventoryTable';
-import { InventoryActions } from '../components/InventoryActions';
-import { StockAlerts } from '../components/StockAlerts';
-import { NewMaterialForm } from '../components/NewMaterialForm';
+import React, { useState, useEffect } from 'react';
+import GroupTree from '../components/GroupTree';
+import { Plus, Package2, ArrowUpDown, Save, Download } from 'lucide-react';
 import { NewProductForm } from '../components/NewProductForm';
-import { SearchBar } from '../components/SearchBar';
 import { useInventory } from '../hooks/useInventory';
-import { useProducts } from '../contexts/ProductContext';
-import { useAuth } from '../contexts/AuthContext';
-import { Loader2, RefreshCw, Save, X, CheckCircle, Download } from 'lucide-react';
 import { makeApiRequest } from '../utils/api';
-import { format } from 'date-fns';
+import { useAuth } from '../contexts/AuthContext';
+import { RawMaterial } from '../types';
 import * as XLSX from 'xlsx';
-import ConfirmationDialog from '../components/ConfirmationDialog';
-import { SortField, SortDirection } from '../types';
+import { format } from 'date-fns';
 
-interface StockSaveResponse {
-  message: string;
-  opening_stock_qty: number;
-  opening_stock_amount: number;
-  timestamp: string;
-}
-
-interface ClosingStockResponse {
-  message: string;
-  closing_stock_qty: number;
-  closing_stock_amount: number;
-  consumption_qty: number;
-  consumption_amount: number;
-  timestamp: string;
-}
-
-export const Inventory = () => {
-  const { user } = useAuth();
-  const [showNewMaterial, setShowNewMaterial] = useState(false);
+const Inventory = () => {
   const [showNewProduct, setShowNewProduct] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSavingOpening, setIsSavingOpening] = useState(false);
-  const [isSavingClosing, setIsSavingClosing] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [showOpeningStockPopup, setShowOpeningStockPopup] = useState(false);
-  const [showClosingStockPopup, setShowClosingStockPopup] = useState(false);
-  const [savedOpeningStock, setSavedOpeningStock] = useState<StockSaveResponse | null>(null);
-  const [savedClosingStock, setSavedClosingStock] = useState<ClosingStockResponse | null>(null);
-  const [showOpeningConfirmation, setShowOpeningConfirmation] = useState(false);
-  const [showClosingConfirmation, setShowClosingConfirmation] = useState(false);
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  
-  const { 
-    inventory, 
-    stockAlerts, 
-    updateStock,
-    subtractStock,
-    updateStockLimit, 
-    addMaterial,
-    updateDefective,
-    subtractDefective,
-    updateMaterialDetails,
-    deleteStock,
-    refreshInventory,
-    isLoading,
-    error 
-  } = useInventory();
-  
-  const { addProduct } = useProducts();
+  const [isLoading, setIsLoading] = useState(false);
+  const [showOpeningStockSummary, setShowOpeningStockSummary] = useState(false);
+  const [openingStockSummary, setOpeningStockSummary] = useState<any>(null);
+  const [isSavingOpeningStock, setIsSavingOpeningStock] = useState(false);
+  const [showClosingStockSummary, setShowClosingStockSummary] = useState(false);
+  const [closingStockSummary, setClosingStockSummary] = useState<any>(null);
+  const { user } = useAuth();
+  const { refreshInventory, inventory } = useInventory();
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+  useEffect(() => {
+    console.log("Inventory data:", inventory);
+  }, [inventory]);
+
+  const handleOpeningStock = async () => {
+    setIsLoading(true);
+    try {
+      await makeApiRequest({
+        operation: "UpdateOpeningStock",
+        username: user.username
+      });
+      await refreshInventory();
+    } catch (error: any) {
+      console.error('Failed to update opening stock:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const getSortedMaterials = () => {
-    return [...inventory]
-      .filter(material => material.name.toLowerCase().includes(searchQuery.toLowerCase()))
-      .sort((a, b) => {
-        let comparison = 0;
-        
-        switch (sortField) {
-          case 'name':
-            comparison = a.name.localeCompare(b.name);
-            break;
-          case 'available':
-            comparison = a.available - b.available;
-            break;
-          case 'defective':
-            comparison = (a.defectiveQuantity || 0) - (b.defectiveQuantity || 0);
-            break;
-          case 'cost':
-            comparison = a.cost - b.cost;
-            break;
-          case 'totalCost':
-            comparison = (a.cost * a.available) - (b.cost * b.available);
-            break;
-          case 'stockLimit':
-            comparison = (a.minStockLimit || 0) - (b.minStockLimit || 0);
-            break;
-          default:
-            comparison = 0;
-        }
-        
-        return sortDirection === 'asc' ? comparison : -comparison;
-      });
-  };
-
-  const handleRefresh = async () => {
-    await refreshInventory();
-  };
-
-  const handleDownload = () => {
-    setIsDownloading(true);
+  const handleClosingStock = async () => {
+    setIsLoading(true);
+    setClosingStockSummary(null);
     try {
-      // Use the same sorting function as the table
-      const sortedMaterials = getSortedMaterials();
-      const data = sortedMaterials.map(material => ({
-        'Material Name': material.name,
-        'Available Quantity': material.available,
-        'Unit': material.unit,
-        'Cost Per Unit': `₹${material.cost}`,
-        'Total Cost': `₹${material.cost * material.available}`,
-        'Defective Quantity': material.defectiveQuantity || 0,
-        'Stock Limit': material.minStockLimit || 'Not Set',
-        'Status': material.minStockLimit && material.available <= material.minStockLimit ? 'Low Stock' : 'Normal'
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(data);
-
-      const colWidths = [
-        { wch: 20 },
-        { wch: 15 },
-        { wch: 10 },
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 10 }
-      ];
-      ws['!cols'] = colWidths;
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
-
-      const fileName = `inventory-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
-
-      XLSX.writeFile(wb, fileName);
-    } catch (error) {
-      console.error('Error downloading inventory:', error);
-      setSaveError('Failed to download inventory data');
+      const response = await makeApiRequest({
+        operation: "SaveClosingStock",
+        username: user.username
+      });
+      if (response && response.message === "Closing stock saved successfully.") {
+        setClosingStockSummary({
+          message: response.message,
+          date: response.date,
+          timestamp: response.timestamp,
+          aggregate_closing_qty: response.aggregate_closing_qty,
+          aggregate_closing_amount: response.aggregate_closing_amount
+        });
+        setShowClosingStockSummary(true);
+      }
+    } catch (error: any) {
+      setClosingStockSummary({
+        message: error?.message || 'Failed to save closing stock.'
+      });
+      setShowClosingStockSummary(true);
     } finally {
-      setIsDownloading(false);
+      setIsLoading(false);
     }
   };
 
   const handleSaveOpeningStock = async () => {
-    setIsSavingOpening(true);
-    setSaveError(null);
-    setSavedOpeningStock(null);
-
+    setIsSavingOpeningStock(true);
+    setOpeningStockSummary(null);
     try {
-      const response = await makeApiRequest<StockSaveResponse>({
+      const response = await makeApiRequest({
         operation: "SaveOpeningStock",
-        username: user.username,
-        stocks: inventory.map(item => ({
-          item_id: item.id,
-          quantity: item.available,
-          defective: item.defectiveQuantity
-        }))
+        username: user.username
       });
-
-      if (response.message?.includes('success')) {
-        setSavedOpeningStock(response);
-        setShowOpeningStockPopup(true);
-        await refreshInventory();
-      } else {
-        setSaveError('Failed to save opening stock');
+      if (response && response.message === "Opening stock saved successfully.") {
+        setOpeningStockSummary({
+          message: response.message,
+          report_date: response.report_date,
+          timestamp: response.timestamp,
+          aggregate_opening_qty: response.aggregate_opening_qty,
+          aggregate_opening_amount: response.aggregate_opening_amount
+        });
+        setShowOpeningStockSummary(true);
       }
     } catch (error: any) {
-      setSaveError(error?.message || 'Failed to save opening stock');
+      setOpeningStockSummary({
+        message: error?.message || 'Failed to save opening stock.'
+      });
+      setShowOpeningStockSummary(true);
     } finally {
-      setIsSavingOpening(false);
-      setShowOpeningConfirmation(false);
+      setIsSavingOpeningStock(false);
     }
   };
 
-  const handleSaveClosingStock = async () => {
-    setIsSavingClosing(true);
-    setSaveError(null);
-    setSavedClosingStock(null);
-
+  // --- DOWNLOAD EXCEL LOGIC ---
+  const handleDownloadAllInventory = async () => {
     try {
-      const response = await makeApiRequest<ClosingStockResponse>({
-        operation: "SaveClosingStock",
-        username: user.username,
-        stocks: inventory.map(item => ({
-          item_id: item.id,
-          quantity: item.available,
-          defective: item.defectiveQuantity
-        }))
-      });
-
-      if (response.message?.includes('success')) {
-        setSavedClosingStock(response);
-        setShowClosingStockPopup(true);
-        await refreshInventory();
-      } else {
-        setSaveError('Failed to save closing stock');
+      // Fetch the full group tree (same as GroupTree)
+      const data: any[] = await makeApiRequest({ operation: 'GetAllStocks', username: user.username });
+      // GroupNode type: { group_id, group_name, items, subgroups }
+      const excelColumns = [
+        { key: 'subgroup', label: 'Subgroup' },
+        { key: 'name', label: 'Material' },
+        { key: 'quantity', label: 'Available' },
+        { key: 'defective', label: 'Defective' },
+        { key: 'total_quantity', label: 'Total Qty' },
+        { key: 'unit', label: 'UNIT' },
+        { key: 'cost_per_unit', label: 'Cost Per Unit' },
+        { key: 'total_cost', label: 'Total Cost' },
+        { key: 'stock_limit', label: 'Stock Limit' },
+      ];
+      // Recursively collect all materials from all groups and subgroups
+      const collectAllMaterials = (currentGroup: any, parentName: string = ''): any[] => {
+        let materials: any[] = [];
+        if (currentGroup.items && currentGroup.items.length > 0) {
+          materials = materials.concat(
+            currentGroup.items.map((item: any) => ({
+              ...item,
+              subgroup: parentName || 'Main Group',
+            }))
+          );
+        }
+        if (currentGroup.subgroups && currentGroup.subgroups.length > 0) {
+          currentGroup.subgroups.forEach((subgroup: any) => {
+            materials = materials.concat(
+              collectAllMaterials(subgroup, subgroup.group_name)
+            );
+          });
+        }
+        return materials;
+      };
+      // Collect all materials from all main groups
+      let allMaterials: any[] = [];
+      for (const group of data) {
+        allMaterials = allMaterials.concat(collectAllMaterials(group, group.group_name));
       }
-    } catch (error: any) {
-      setSaveError(error?.message || 'Failed to save closing stock');
-    } finally {
-      setIsSavingClosing(false);
-      setShowClosingConfirmation(false);
+      // Group materials by subgroup
+      const groupedMaterials: { [key: string]: any[] } = allMaterials.reduce((acc: { [key: string]: any[] }, material: any) => {
+        const subgroup = material.subgroup;
+        if (!acc[subgroup]) acc[subgroup] = [];
+        acc[subgroup].push(material);
+        return acc;
+      }, {} as { [key: string]: any[] });
+      // Sort subgroups alphabetically, but keep Main Group first
+      const sortedSubgroups = Object.keys(groupedMaterials).sort((a, b) => {
+        if (a === 'Main Group') return -1;
+        if (b === 'Main Group') return 1;
+        return a.localeCompare(b);
+      });
+      // Prepare data for Excel with hierarchy
+      const dataRows: any[] = [];
+      dataRows.push(excelColumns.map(col => col.label)); // Header row
+      sortedSubgroups.forEach((subgroup: string) => {
+        const materials = groupedMaterials[subgroup];
+        // Add subgroup header
+        dataRows.push([subgroup, ...Array(excelColumns.length - 1).fill('')]);
+        // Add materials for this subgroup
+        materials.forEach((item: any) => {
+          const row: { [key: string]: any } = {};
+          excelColumns.forEach(col => {
+            if (col.key === 'total_cost') {
+              row[col.label] = (Number(item.quantity) * Number(item.cost_per_unit)).toFixed(2);
+            } else {
+              row[col.label] = item[col.key];
+            }
+          });
+          dataRows.push(Object.values(row));
+        });
+        // Add subtotal row for this subgroup
+        const subtotal = {
+          quantity: materials.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0),
+          defective: materials.reduce((sum: number, item: any) => sum + (item.defective || 0), 0),
+          total_cost: materials.reduce((sum: number, item: any) => sum + ((item.quantity || 0) * (item.cost_per_unit || 0)), 0),
+        };
+        dataRows.push([
+          `Subtotal for ${subgroup}`,
+          '',
+          subtotal.quantity,
+          subtotal.defective,
+          '', '', '',
+          subtotal.total_cost.toFixed(2),
+          ''
+        ]);
+        dataRows.push(Array(excelColumns.length).fill(''));
+      });
+      // Create worksheet
+      const ws = XLSX.utils.aoa_to_sheet(dataRows);
+      ws['!cols'] = excelColumns.map(col => ({ wch: Math.max(col.label.length + 5, 15) }));
+      // Add styling for subgroup headers and subtotals
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
+        if (cell && cell.v && typeof cell.v === 'string' && cell.v.includes('Subtotal')) {
+          cell.s = { font: { bold: true }, fill: { fgColor: { rgb: 'E2E8F0' } } };
+        } else if (cell && cell.v && typeof cell.v === 'string' && (cell.v === 'Main Group' || !cell.v.includes('Subtotal'))) {
+          cell.s = { font: { bold: true }, fill: { fgColor: { rgb: 'F0FDF4' } } };
+        }
+      }
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+      // Download file
+      XLSX.writeFile(wb, `full-inventory-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    } catch (error) {
+      // Optionally show a user-friendly error message
+      console.error('Error downloading inventory:', error);
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <div className="bg-red-50 text-red-700 p-4 rounded-md inline-block">
-          <h3 className="text-lg font-semibold mb-2">Error Loading Inventory</h3>
-          <p>{error}</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold">Inventory Management</h1>
-        <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
+        <div className="flex space-x-4">
           <button
-            onClick={handleDownload}
-            disabled={isDownloading}
-            className={`flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors min-w-[140px] ${
-              isDownloading ? 'opacity-75 cursor-not-allowed' : ''
-            }`}
+            onClick={() => setShowNewProduct(true)}
+            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+            disabled={isLoading}
           >
-            {isDownloading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 mr-2" />
-            )}
-            {isDownloading ? 'Downloading...' : 'Download Excel'}
+            <Plus className="w-4 h-4 mr-2" />
+            Create New Product
           </button>
-
           <button
-            onClick={() => setShowOpeningConfirmation(true)}
-            disabled={isSavingOpening}
-            className={`flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors min-w-[140px] ${
-              isSavingOpening ? 'opacity-75 cursor-not-allowed' : ''
-            }`}
+            onClick={handleSaveOpeningStock}
+            className="flex items-center px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
+            disabled={isSavingOpeningStock}
+            title="Save Opening Stock"
           >
-            {isSavingOpening ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
-            )}
-            {isSavingOpening ? 'Saving...' : 'Opening Stock'}
+            <Save className="w-4 h-4 mr-2" />
+            {isSavingOpeningStock ? 'Saving...' : 'Save Opening Stock'}
           </button>
-
           <button
-            onClick={() => setShowClosingConfirmation(true)}
-            disabled={isSavingClosing}
-            className={`flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors min-w-[140px] ${
-              isSavingClosing ? 'opacity-75 cursor-not-allowed' : ''
-            }`}
+            onClick={handleClosingStock}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            disabled={isLoading}
           >
-            {isSavingClosing ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
-            )}
-            {isSavingClosing ? 'Saving...' : 'Closing Stock'}
+            <ArrowUpDown className="w-4 h-4 mr-2" />
+            Closing Stock
           </button>
-
           <button
-            onClick={handleRefresh}
-            className="flex items-center justify-center px-4 py-2 bg-white text-indigo-600 rounded-md hover:bg-indigo-50 border border-indigo-200 transition-colors min-w-[140px]"
+            onClick={handleDownloadAllInventory}
+            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+            title="Download Inventory Excel"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+            <Download className="w-4 h-4 mr-2" />
+            Download Excel
           </button>
         </div>
       </div>
-
-      {saveError && (
-        <div className="mb-4 bg-red-50 border-l-4 border-red-400 p-4 rounded-r-md">
-          <p className="text-red-700">{saveError}</p>
-        </div>
-      )}
-
-      {showOpeningStockPopup && savedOpeningStock && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 relative">
-            <button
-              onClick={() => setShowOpeningStockPopup(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="bg-green-100 rounded-full p-2 mr-3">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Opening Stock Saved Successfully
-                </h3>
-              </div>
-              
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Total Quantity:</span>
-                  <span className="font-medium">{savedOpeningStock.opening_stock_qty.toLocaleString()} units</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Total Amount:</span>
-                  <span className="font-medium">₹{savedOpeningStock.opening_stock_amount.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-gray-600">Timestamp:</span>
-                  <span className="font-medium">
-                    {format(new Date(savedOpeningStock.timestamp), 'PPp')}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowOpeningStockPopup(false)}
-                className="mt-6 w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showClosingStockPopup && savedClosingStock && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 relative">
-            <button
-              onClick={() => setShowClosingStockPopup(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="bg-green-100 rounded-full p-2 mr-3">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Closing Stock Saved Successfully
-                </h3>
-              </div>
-              
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Closing Stock Quantity:</span>
-                  <span className="font-medium">{savedClosingStock.closing_stock_qty.toLocaleString()} units</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Closing Stock Amount:</span>
-                  <span className="font-medium">₹{savedClosingStock.closing_stock_amount.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Consumption Quantity:</span>
-                  <span className="font-medium">{savedClosingStock.consumption_qty.toLocaleString()} units</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-gray-600">Consumption Amount:</span>
-                  <span className="font-medium">₹{savedClosingStock.consumption_amount.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-gray-600">Timestamp:</span>
-                  <span className="font-medium">
-                    {format(new Date(savedClosingStock.timestamp), 'PPp')}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowClosingStockPopup(false)}
-                className="mt-6 w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       
-      <StockAlerts alerts={stockAlerts} />
-      <InventoryActions 
-        onNewMaterial={() => setShowNewMaterial(true)}
-        onNewProduct={() => setShowNewProduct(true)}
-      />
-      <SearchBar 
-        value={searchQuery}
-        onChange={setSearchQuery}
-      />
-      <InventoryTable
-        materials={getSortedMaterials()}
-        onUpdateStock={updateStock}
-        onSubtractStock={subtractStock}
-        onUpdateStockLimit={updateStockLimit}
-        onUpdateDefective={updateDefective}
-        onSubtractDefective={subtractDefective}
-        onUpdateMaterialDetails={updateMaterialDetails}
-        onDeleteStock={deleteStock}
-        sortField={sortField}
-        sortDirection={sortDirection}
-        onSort={handleSort}
-      />
-
-      {showNewMaterial && (
-        <NewMaterialForm
-          inventory={inventory}
-          onAddMaterial={addMaterial}
-          onClose={() => setShowNewMaterial(false)}
-        />
-      )}
+      <GroupTree />
+      <DefectiveReport />
 
       {showNewProduct && (
         <NewProductForm
           inventory={inventory}
-          onAddProduct={addProduct}
           onClose={() => setShowNewProduct(false)}
+          onAddProduct={async (product) => {
+            try {
+              await makeApiRequest({
+                operation: "AddProduct",
+                username: user.username,
+                product: product
+              });
+              setShowNewProduct(false);
+              await refreshInventory();
+            } catch (error: any) {
+              console.error('Failed to add product:', error);
+            }
+          }}
         />
       )}
 
-      <ConfirmationDialog
-        isOpen={showOpeningConfirmation}
-        title="Save Opening Stock"
-        message="Are you sure you want to save the current inventory as opening stock? This will record the current quantities and values as the starting point for the day."
-        isProcessing={isSavingOpening}
-        confirmText="Save Opening Stock"
-        processingText="Saving Opening Stock..."
-        onConfirm={handleSaveOpeningStock}
-        onCancel={() => setShowOpeningConfirmation(false)}
-      />
+      {/* Opening Stock Summary Modal */}
+      {showOpeningStockSummary && openingStockSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+              onClick={() => setShowOpeningStockSummary(false)}
+              title="Close"
+            >
+              ×
+            </button>
+            <h2 className="text-lg font-bold mb-4 text-green-700 flex items-center">
+              <Save className="w-5 h-5 mr-2 text-green-600" />
+              Opening Stock Saved
+            </h2>
+            <div className="space-y-2 text-sm">
+              <div><span className="font-semibold">✅ Message:</span> {openingStockSummary.message}</div>
+              {openingStockSummary.report_date && (
+                <div><span className="font-semibold">🗓 Report Date:</span> {openingStockSummary.report_date}</div>
+              )}
+              {openingStockSummary.timestamp && (
+                <div><span className="font-semibold">⏱ Timestamp:</span> {openingStockSummary.timestamp}</div>
+              )}
+              {openingStockSummary.aggregate_opening_qty !== undefined && (
+                <div><span className="font-semibold">📊 Aggregate Opening Qty:</span> {openingStockSummary.aggregate_opening_qty}</div>
+              )}
+              {openingStockSummary.aggregate_opening_amount !== undefined && (
+                <div><span className="font-semibold">💰 Aggregate Opening Amount:</span> {openingStockSummary.aggregate_opening_amount}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
-      <ConfirmationDialog
-        isOpen={showClosingConfirmation}
-        title="Save Closing Stock"
-        message="Are you sure you want to save the current inventory as closing stock? This will record the final quantities and values for the day."
-        isProcessing={isSavingClosing}
-        confirmText="Save Closing Stock"
-        processingText="Saving Closing Stock..."
-        onConfirm={handleSaveClosingStock}
-        onCancel={() => setShowClosingConfirmation(false)}
-      />
+      {/* Closing Stock Summary Modal */}
+      {showClosingStockSummary && closingStockSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+              onClick={() => setShowClosingStockSummary(false)}
+              title="Close"
+            >
+              ×
+            </button>
+            <h2 className="text-lg font-bold mb-4 text-blue-700 flex items-center">
+              <ArrowUpDown className="w-5 h-5 mr-2 text-blue-600" />
+              Closing Stock Saved
+            </h2>
+            <div className="space-y-2 text-sm">
+              <div><span className="font-semibold">✅ Message:</span> {closingStockSummary.message}</div>
+              {closingStockSummary.date && (
+                <div><span className="font-semibold">🗓 Date:</span> {closingStockSummary.date}</div>
+              )}
+              {closingStockSummary.timestamp && (
+                <div><span className="font-semibold">⏱ Timestamp:</span> {closingStockSummary.timestamp}</div>
+              )}
+              {closingStockSummary.aggregate_closing_qty !== undefined && (
+                <div><span className="font-semibold">📊 Aggregate Closing Qty:</span> {closingStockSummary.aggregate_closing_qty}</div>
+              )}
+              {closingStockSummary.aggregate_closing_amount !== undefined && (
+                <div><span className="font-semibold">💰 Aggregate Closing Amount:</span> {closingStockSummary.aggregate_closing_amount}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DefectiveReport: React.FC = () => {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const fetchDefectiveReport = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await makeApiRequest({ operation: 'GetAllDescriptions' });
+      setData(Array.isArray(res) ? res : []);
+      setExpanded(true);
+    } catch (e: any) {
+      setError(e.message || 'Failed to fetch defective report.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!data.length) return;
+    const worksheetData = data.map(row => ({
+      'Stock': row.stock,
+      'Username': row.username,
+      'Created At': row.created_at,
+      'Description': row.description,
+    }));
+    const ws = XLSX.utils.json_to_sheet(worksheetData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Defective Report');
+    XLSX.writeFile(wb, `defective-report-${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  return (
+    <div className="mb-6">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="bg-red-50 border-b border-red-200 p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="bg-red-100 p-2 rounded-full">
+                <span role="img" aria-label="defective">🛑</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-800">Defective Report</h3>
+                <p className="text-sm text-red-600">{data.length} records found</p>
+              </div>
+            </div>
+            <div className="flex flex-1 gap-2 items-center justify-end">
+              <button
+                onClick={fetchDefectiveReport}
+                disabled={loading}
+                className={`p-2 text-red-700 hover:text-red-900 hover:bg-red-100 rounded-md transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label="Fetch Defective Report"
+                title="Fetch Defective Report"
+              >
+                {loading ? 'Loading...' : 'Show Defective Report'}
+              </button>
+              <button
+                onClick={handleDownload}
+                disabled={!data.length}
+                className={`p-2 text-red-700 hover:text-red-900 hover:bg-red-100 rounded-md transition-colors ${!data.length ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label="Download Defective Report"
+                title="Download as Excel"
+              >
+                <Download className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setExpanded(e => !e)}
+                className="p-2 text-red-700 hover:text-red-900 hover:bg-red-100 rounded-md transition-colors"
+                aria-label={expanded ? "Collapse report" : "Expand report"}
+              >
+                {expanded ? '−' : '+'}
+              </button>
+            </div>
+          </div>
+        </div>
+        {expanded && (
+          <div className="overflow-x-auto">
+            {error && <div className="text-red-600 p-4">{error}</div>}
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {data.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.stock}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.username}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.created_at}</td>
+                    <td className="px-6 py-4 whitespace-pre-line text-sm text-gray-900">{row.description}</td>
+                  </tr>
+                ))}
+                {data.length === 0 && !loading && !error && (
+                  <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-400">No data</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

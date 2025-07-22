@@ -3,8 +3,8 @@ import { RawMaterial } from '../types';
 
 interface StockLimitInputProps {
   material: RawMaterial;
-  value: number;
-  onChange: (value: number) => void;
+  value: string;
+  onChange: (value: string) => void;
 }
 
 export const StockLimitInput: React.FC<StockLimitInputProps> = ({
@@ -19,8 +19,8 @@ export const StockLimitInput: React.FC<StockLimitInputProps> = ({
         min="0"
         className="w-20 px-2 py-1 border rounded text-sm"
         placeholder="Limit"
-        value={value || ''}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
       />
       <span className="text-sm text-gray-500">{material.unit}</span>
     </div>

@@ -116,7 +116,7 @@ export async function loginUser(username: string, password: string): Promise<any
   }
 }
 
-export async function fetchReportData(reportType: string, date?: string, month?: string) {
+export async function fetchReportData(reportType: string, user: { username: string }, date?: string, month?: string) {
   let payload;
   
   switch (reportType) {
@@ -124,7 +124,7 @@ export async function fetchReportData(reportType: string, date?: string, month?:
       payload = {
         operation: "GetDailyReport",
         report_date: date,
-        username: "john_doe"
+        username: user.username
       };
       break;
     case 'weekly':
@@ -132,14 +132,14 @@ export async function fetchReportData(reportType: string, date?: string, month?:
         operation: "GetWeeklyReport",
         start_date: date,
         end_date: date,
-        username: "john_doe"
+        username: user.username
       };
       break;
     case 'monthly':
       payload = {
         operation: "GetMonthlyReport",
         month: month,
-        username: "john_doe"
+        username: user.username
       };
       break;
     default:

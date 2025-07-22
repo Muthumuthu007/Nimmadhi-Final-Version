@@ -2,7 +2,7 @@ import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Dashboard from '../pages/Dashboard';
-import { Inventory } from '../pages/Inventory';
+import Inventory from '../pages/Inventory';
 import Production from '../pages/Production';
 import Dispatched from '../pages/Dispatched';
 import Reports from '../pages/Reports';
@@ -15,6 +15,13 @@ import MonthlyConsumption from '../pages/reports/MonthlyConsumption';
 import Login from '../pages/Login';
 import Admin from '../pages/Admin';
 import ProtectedRoute from '../components/ProtectedRoute';
+import SignUp from '../pages/SignUp';
+import DispatchedDaily from '../pages/DispatchedDaily';
+import DispatchedWeekly from '../pages/DispatchedWeekly';
+import DispatchedMonthly from '../pages/DispatchedMonthly';
+import DailyInward from '../pages/reports/DailyInward';
+import WeeklyInward from '../pages/reports/WeeklyInward';
+import MonthlyInward from '../pages/reports/MonthlyInward';
 
 export const router = createBrowserRouter([
   {
@@ -24,6 +31,10 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <Login />,
+  },
+  {
+    path: '/signup',
+    element: <SignUp />,
   },
   {
     path: '/admin',
@@ -62,6 +73,20 @@ export const router = createBrowserRouter([
       {
         path: 'dispatched',
         element: <Dispatched />,
+        children: [
+          {
+            path: 'daily',
+            element: <DispatchedDaily />,
+          },
+          {
+            path: 'weekly',
+            element: <DispatchedWeekly />,
+          },
+          {
+            path: 'monthly',
+            element: <DispatchedMonthly />,
+          },
+        ],
       },
       {
         path: 'reports',
@@ -93,7 +118,19 @@ export const router = createBrowserRouter([
           {
             path: 'consumption/monthly',
             element: <MonthlyConsumption />,
-          }
+          },
+          {
+            path: 'inward/daily',
+            element: <DailyInward />,
+          },
+          {
+            path: 'inward/weekly',
+            element: <WeeklyInward />,
+          },
+          {
+            path: 'inward/monthly',
+            element: <MonthlyInward />,
+          },
         ],
       },
     ],

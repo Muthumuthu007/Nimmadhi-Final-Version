@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Product, ProductionResponse } from '../types';
 import { makeApiRequest } from '../utils/api';
-import { AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
+import { AlertTriangle, RotateCcw, Loader2, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import ConfirmationDialog from './ConfirmationDialog';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -16,13 +16,16 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
 }) => {
   const { user } = useAuth();
   const [selectedProduct, setSelectedProduct] = useState('');
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState('1');
   const [isLoading, setIsLoading] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [lastProduction, setLastProduction] = useState<ProductionResponse | null>(null);
   const [showUndoConfirmation, setShowUndoConfirmation] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedProduction = localStorage.getItem('lastProduction');
@@ -48,16 +51,30 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
     e.preventDefault();
     if (!selectedProduct) return;
 
+    if (!quantity || isNaN(Number(quantity)) || Number(quantity) < 1) {
+      setError('Please enter a valid quantity.');
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
+      const newTotalCostPerUnit = (
+        Number(selectedProductDetails.productionCostTotal) +
+        Number(selectedProductDetails.laborCost || 0) +
+        Number(selectedProductDetails.transportCost || 0) +
+        Number(selectedProductDetails.wastageAmount || 0) +
+        Number((selectedProductDetails as any).otherCost || 0)
+      );
       const response = await makeApiRequest({
         operation: "PushToProduction",
         product_id: selectedProduct,
-        quantity: quantity,
-        username: user.username
+        quantity: Number(quantity),
+        username: user.username,
+        production_cost_per_unit: newTotalCostPerUnit
       });
 
       if (response && (response.message === "Production successful" || 
@@ -110,6 +127,26 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
     }
   };
 
+  // Filter products based on search
+  const filteredProducts = products.filter(product => 
+    (product.name && product.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (product.id && product.id.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  // Handle clicking outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const selectedProductDetails = products.find(p => p.id === selectedProduct);
 
   return (
@@ -144,39 +181,108 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
         </div>
       )}
 
-      {lastProduction && (
-        <div className="mb-4 p-4 bg-indigo-50 border border-indigo-100 rounded-md">
-          <h3 className="font-medium text-indigo-800 mb-2">Last Production Details</h3>
-          <div className="space-y-1 text-sm">
-            <p><span className="font-medium">Product ID:</span> {lastProduction.product_id}</p>
-            <p><span className="font-medium">Quantity:</span> {lastProduction.quantity_produced} units</p>
-            <p><span className="font-medium">Cost per Unit:</span> ₹{lastProduction.production_cost_per_unit.toFixed(2)}</p>
-            <p><span className="font-medium">Total Cost:</span> ₹{lastProduction.total_production_cost.toFixed(2)}</p>
-            <p><span className="font-medium">Push ID:</span> {lastProduction.push_id}</p>
+      {lastProduction && (() => {
+        const lastProduct = products.find(p => p.id === lastProduction.product_id);
+        return (
+          <div className="mb-4 p-4 bg-indigo-50 border border-indigo-100 rounded-md">
+            <h3 className="font-medium text-indigo-800 mb-2">Last Production Details</h3>
+            <div className="space-y-1 text-sm">
+              <p><span className="font-medium">Product ID:</span> {lastProduction.product_id}</p>
+              <p><span className="font-medium">Quantity:</span> {lastProduction.quantity_produced} units</p>
+              <p><span className="font-medium">Cost per Unit:</span> ₹{lastProduct ? (
+                Number(lastProduct.productionCostTotal) +
+                Number(lastProduct.laborCost || 0) +
+                Number(lastProduct.transportCost || 0) +
+                Number(lastProduct.wastageAmount || 0) +
+                Number((lastProduct as any).otherCost || 0)
+              ).toFixed(2) : '-'}</p>
+              <p><span className="font-medium">Total Cost:</span> ₹{lastProduct ? (
+                (
+                  Number(lastProduct.productionCostTotal) +
+                  Number(lastProduct.laborCost || 0) +
+                  Number(lastProduct.transportCost || 0) +
+                  Number(lastProduct.wastageAmount || 0) +
+                  Number((lastProduct as any).otherCost || 0)
+                ) * Number(lastProduction.quantity_produced)
+              ).toFixed(2) : '-'}</p>
+              <p><span className="font-medium">Push ID:</span> {lastProduction.push_id}</p>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Select Product</label>
-          <select
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            value={selectedProduct}
-            onChange={(e) => setSelectedProduct(e.target.value)}
-            required
-          >
-            <option value="">Choose a product...</option>
-            {products.map((product) => (
-              <option 
-                key={product.id} 
-                value={product.id}
-                disabled={product.maxProduce === 0}
-              >
-                {product.name} {product.maxProduce === 0 ? '(Insufficient materials)' : ''}
-              </option>
-            ))}
-          </select>
+          <div className="relative" ref={dropdownRef}>
+            <button
+              type="button"
+              className="flex justify-between items-center w-full rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-left focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            >
+              <span>
+                {selectedProductDetails ? selectedProductDetails.name : 'Choose a product...'}
+              </span>
+              {isDropdownOpen ? (
+                <ChevronUp className="h-4 w-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-gray-400" />
+              )}
+            </button>
+            
+            {isDropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg">
+                <div className="p-2 border-b">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-4 w-4 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      className="pl-10 pr-4 py-2 w-full text-sm border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="Search products..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      aria-label="Search products"
+                      title="Search products"
+                    />
+                  </div>
+                </div>
+                <div className="max-h-60 overflow-y-auto">
+                  {filteredProducts.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No products found
+                    </div>
+                  ) : (
+                    filteredProducts.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 focus:outline-none focus:bg-gray-100 ${
+                          product.maxProduce === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        onClick={() => {
+                          if (product.maxProduce > 0) {
+                            setSelectedProduct(product.id);
+                            setIsDropdownOpen(false);
+                            setSearchQuery('');
+                          }
+                        }}
+                        disabled={product.maxProduce === 0}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span>{product.name}</span>
+                          {product.maxProduce === 0 && (
+                            <span className="text-xs text-red-500">(Insufficient materials)</span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {selectedProductDetails && (
@@ -189,7 +295,13 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
               </p>
               <p className="flex justify-between">
                 <span>Cost per Unit:</span>
-                <span className="font-medium">₹{selectedProductDetails.productionCostTotal}</span>
+                <span className="font-medium">₹{(
+                  Number(selectedProductDetails.productionCostTotal) +
+                  Number(selectedProductDetails.laborCost || 0) +
+                  Number(selectedProductDetails.transportCost || 0) +
+                  Number(selectedProductDetails.wastageAmount || 0) +
+                  Number((selectedProductDetails as any).otherCost || 0)
+                ).toFixed(2)}</span>
               </p>
               <div className="pt-2 border-t">
                 <p className="text-gray-600 mb-1">Materials Required per Unit:</p>
@@ -208,11 +320,11 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
         <div>
           <label className="block text-sm font-medium text-gray-700">Quantity</label>
           <input
-            type="number"
+            type="text"
             min="1"
             max={selectedProductDetails?.maxProduce || 1}
             value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
+            onChange={(e) => setQuantity(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             required
           />
@@ -223,14 +335,20 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
             <h3 className="font-medium text-indigo-700 mb-2">Production Summary</h3>
             <div className="space-y-1 text-sm">
               <p className="flex justify-between">
-                <span>Total Production Cost:</span>
-                <span className="font-medium">₹{(selectedProductDetails.productionCostTotal * quantity).toFixed(2)}</span>
+                <span>Total Cost:</span>
+                <span className="font-medium">₹{(
+                  (Number(selectedProductDetails.productionCostTotal) +
+                  Number(selectedProductDetails.laborCost || 0) +
+                  Number(selectedProductDetails.transportCost || 0) +
+                  Number(selectedProductDetails.wastageAmount || 0) +
+                  Number((selectedProductDetails as any).otherCost || 0)) * Number(quantity)
+                ).toFixed(2)}</span>
               </p>
               <p className="flex justify-between">
                 <span>Total Materials Required:</span>
                 <span className="font-medium">
                   {Object.entries(selectedProductDetails.stockNeeded)
-                    .map(([material, qty]) => `${material}: ${Number(qty) * quantity}`)
+                    .map(([material, qty]) => `${material}: ${Number(qty) * Number(quantity)}`)
                     .join(', ')}
                 </span>
               </p>
@@ -240,9 +358,9 @@ export const ProductionForm: React.FC<ProductionFormProps> = ({
 
         <button
           type="submit"
-          disabled={isLoading || !selectedProduct || quantity < 1 || (selectedProductDetails?.maxProduce || 0) < quantity}
+          disabled={isLoading || !selectedProduct || Number(quantity) < 1 || (selectedProductDetails?.maxProduce || 0) < Number(quantity)}
           className={`w-full bg-primary text-white py-2 px-4 rounded-md hover:bg-primary-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
-            (isLoading || !selectedProduct || quantity < 1 || (selectedProductDetails?.maxProduce || 0) < quantity) 
+            (isLoading || !selectedProduct || Number(quantity) < 1 || (selectedProductDetails?.maxProduce || 0) < Number(quantity)) 
               ? 'opacity-50 cursor-not-allowed' 
               : ''
           }`}

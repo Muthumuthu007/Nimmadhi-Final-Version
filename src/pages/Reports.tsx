@@ -59,6 +59,33 @@ const Reports = () => {
           path: '/dashboard/reports/consumption/monthly',
         },
       ]
+    },
+    {
+      title: 'Inward Reports',
+      description: 'Track material inward entries and receipts',
+      items: [
+        {
+          id: 'daily-inward',
+          title: 'Daily Inward',
+          description: 'Monitor daily material inward and receipts',
+          icon: Calendar,
+          path: '/dashboard/reports/inward/daily',
+        },
+        {
+          id: 'weekly-inward',
+          title: 'Weekly Inward',
+          description: 'Analyze weekly inward material trends',
+          icon: CalendarRange,
+          path: '/dashboard/reports/inward/weekly',
+        },
+        {
+          id: 'monthly-inward',
+          title: 'Monthly Inward',
+          description: 'Track monthly inward patterns and receipts',
+          icon: FileText,
+          path: '/dashboard/reports/inward/monthly',
+        },
+      ]
     }
   ];
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RawMaterial, StockAlert } from '../types';
+import { RawMaterial } from '../types';
 import { checkStockAlerts } from '../utils/stockMonitoring';
 import { makeApiRequest } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,7 +27,8 @@ export const useInventory = () => {
         cost: item.cost_per_unit,
         available: item.quantity,
         minStockLimit: item.stock_limit,
-        defectiveQuantity: item.defective
+        defectiveQuantity: item.defective,
+        totalQuantity: item.total_quantity
       }));
 
       setInventory(materials);
@@ -143,7 +144,7 @@ export const useInventory = () => {
       await makeApiRequest({
         operation: "UpdateStock",
         name: material.name,
-        quantity: material.quantity,
+        quantity: material.available,
         defective: updates.defective ?? material.defectiveQuantity,
         cost_per_unit: updates.cost ?? material.cost,
         stock_limit: material.minStockLimit,
@@ -165,7 +166,7 @@ export const useInventory = () => {
       await makeApiRequest({
         operation: "UpdateStock",
         name: material.name,
-        quantity: material.quantity,
+        quantity: material.available,
         defective: material.defectiveQuantity,
         cost_per_unit: material.cost,
         stock_limit: limit,

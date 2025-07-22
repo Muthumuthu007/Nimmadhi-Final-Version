@@ -5,8 +5,8 @@ import { generateMaterialId } from '../utils/inventory';
 import { AlertCircle, CheckCircle, Maximize2, Minimize2 } from 'lucide-react';
 
 interface NewMaterialFormProps {
-  inventory: RawMaterial[];
-  onAddMaterial: (material: RawMaterial) => void;
+  inventory: any[];
+  onAddMaterial: (material: any) => void;
   onClose: () => void;
 }
 
@@ -26,7 +26,7 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
     cost_per_unit: '',
     stock_limit: '',
     unit: '',
-    username: 'Muthu' // This should ideally come from your auth context
+    username: 'alice' // Using the same username as in the example
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -36,16 +36,16 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
     setSuccess(null);
 
     try {
-      // Create a new material object from the form data
-      const newMaterial: RawMaterial = {
-        id: generateMaterialId(inventory),
+      // Format the material data according to the API requirements
+      const newMaterial = {
+        operation: 'CreateStock',
         name: material.name,
-        quantity: parseFloat(material.quantity) || 0,
+        quantity: Number(material.quantity),
+        defective: Number(material.defective),
+        cost_per_unit: Number(material.cost_per_unit),
+        stock_limit: Number(material.stock_limit),
         unit: material.unit,
-        cost: parseFloat(material.cost_per_unit) || 0,
-        available: parseFloat(material.quantity) || 0,
-        minStockLimit: parseFloat(material.stock_limit) || 0,
-        defectiveQuantity: parseFloat(material.defective) || 0
+        username: material.username
       };
 
       await onAddMaterial(newMaterial);
@@ -59,19 +59,15 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
         cost_per_unit: '',
         stock_limit: '',
         unit: '',
-        username: 'Muthu'
+        username: 'alice'
       });
       
       // Close after a delay to show success message
       setTimeout(() => {
         onClose();
       }, 2000);
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        setError(error.response?.data?.message || 'Failed to add material. Please try again.');
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
+    } catch (error: any) {
+      setError(error?.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +106,7 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
           </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="p-4 sm:p-6">
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-md flex items-center">
               <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
@@ -157,10 +153,8 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
                 <input
                   id="material-quantity"
                   type="number"
-                  required
-                  step="any"
                   min="0"
-                  placeholder="Enter quantity"
+                  step="1"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   value={material.quantity}
                   onChange={e => setMaterial(prev => ({ ...prev, quantity: e.target.value }))}
@@ -172,10 +166,8 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
                 <input
                   id="material-defective"
                   type="number"
-                  required
-                  step="any"
                   min="0"
-                  placeholder="Enter defective quantity"
+                  step="1"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   value={material.defective}
                   onChange={e => setMaterial(prev => ({ ...prev, defective: e.target.value }))}
@@ -187,10 +179,8 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
                 <input
                   id="material-cost"
                   type="number"
-                  required
-                  step="any"
-                  min="0"
-                  placeholder="Enter cost per unit"
+                  min="0.01"
+                  step="0.01"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   value={material.cost_per_unit}
                   onChange={e => setMaterial(prev => ({ ...prev, cost_per_unit: e.target.value }))}
@@ -198,21 +188,19 @@ export const NewMaterialForm: React.FC<NewMaterialFormProps> = ({
               </div>
               
               <div>
-                <label htmlFor="material-limit" className="block text-sm font-medium text-gray-700">Stock Limit</label>
+                <label htmlFor="material-stock-limit" className="block text-sm font-medium text-gray-700">Stock Limit</label>
                 <input
-                  id="material-limit"
+                  id="material-stock-limit"
                   type="number"
-                  required
-                  step="any"
                   min="0"
-                  placeholder="Enter stock limit"
+                  step="1"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   value={material.stock_limit}
                   onChange={e => setMaterial(prev => ({ ...prev, stock_limit: e.target.value }))}
                 />
               </div>
             </div>
-            
+
             <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-gray-200 mt-6">
               <button
                 type="button"
